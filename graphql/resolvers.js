@@ -1,6 +1,7 @@
 const User = require("../models/user");
 const bcrypt = require("bcryptjs");
 
+
 module.exports = {
     createUser: async ({ userInput }, req) => {
         const existingUser = await User.findOne({ email: userInput.email });
