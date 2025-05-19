@@ -4,6 +4,8 @@ const mongoose = require("mongoose");
 const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
+const { graphqlHTTP } = require("express-graphql");
+
 
 require('dotenv').config();
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -41,6 +43,13 @@ app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     next();
 });
+
+app.use('/graphql', graphqlHTTP({
+    schema: require('./graphql/schema'),
+    rootValue: require('./graphql/resolvers'),
+    graphiql: true
+}));
+
 
 app.use((error, req, res, next) => {
     console.log(error);
