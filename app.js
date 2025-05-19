@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const { graphqlHTTP } = require("express-graphql");
+const auth = require("./middleware/auth");
 
 
 require('dotenv').config();
@@ -47,21 +48,31 @@ app.use((req, res, next) => {
     next();
 });
 
+app.use(auth);
+
 app.use('/graphql', graphqlHTTP({
     schema: require('./graphql/schema'),
     rootValue: require('./graphql/resolvers'),
     graphiql: true,
-    formatError: (err) => {
-        if (!err.originalError) {
-            return err;
+    customFormatErrorFn: (error) => {
+        // Get the original error if it exists
+        const originalError = error.originalError;
+        
+        // If there's no original error, return the error as is
+        if (!originalError) {
+            return error;
         }
-        const data = err.originalError.data;
-        const message = err.message || "An error occurred.";
-        const code = err.originalError.code || 500;
-        return { message, data, code };
+
+        // Create the formatted error object
+        return {
+            message: error.message || "An error occurred.",
+            extensions: {
+                code: originalError.code || 500,
+                data: originalError.data
+            }
+        };
     }
 }));
-
 
 app.use((error, req, res, next) => {
     console.log(error);
