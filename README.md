@@ -113,7 +113,7 @@ mutation {
   createPost(postInput: {
     title: "Sample Post",
     content: "This is a sample post",
-    imageUrl: "image-url"
+    imageUrl: "data:image/jpg;base64," + "base64"
   }) {
     _id
     title
@@ -128,6 +128,7 @@ mutation {
   updatePost(id: "post-id", postInput: {
     title: "Updated Title",
     content: "Updated content"
+    imageUrl: "data:image/jpg;base64," + "base64"
   }) {
     _id
     title
