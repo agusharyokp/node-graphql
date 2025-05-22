@@ -3,10 +3,55 @@ const bcrypt = require("bcryptjs");
 const { isEmail } = require("validator");
 const jwt = require("jsonwebtoken");
 const Post = require("../models/post");
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 const dotenv = require("dotenv");
 dotenv.config();
 
+const processBase64Image = async (base64Data) => {
+    try {
+        // Extract base64 data (remove data:image/jpeg;base64, prefix)
+        const base64Image = base64Data.split(',')[1];
+        
+        if (!base64Image) {
+            throw new Error('Invalid base64 format');
+        }
+        
+        // Generate unique filename
+        const filename = crypto.randomBytes(16).toString('hex') + '.jpg';
+        const filepath = path.join(__dirname, '../images', filename);
+        
+        // Decode base64 to buffer
+        const buffer = Buffer.from(base64Image, 'base64');
+        
+        // Validate image size
+        if (buffer.length > 1000000) { // 1MB limit
+            throw new Error('Image too large');
+        }
+        
+        // Create directory if it doesn't exist
+        await fs.promises.mkdir(path.dirname(filepath), { recursive: true });
+        
+        // Write image to file
+        await fs.promises.writeFile(filepath, buffer);
+        
+        // Return the relative path
+        return `/images/${filename}`;
+    } catch (error) {
+        throw new Error('Error processing image: ' + error.message);
+    }
+};
+
+const deleteFile = (filePath) => {
+    filePath = path.join(__dirname, '..', filePath);
+    fs.unlink(filePath, err => {
+        if (err) {
+            throw err;
+        }
+    });
+};
 
 module.exports = {
     createUser: async ({ userInput }, req) => {
@@ -75,7 +120,6 @@ module.exports = {
     },
 
     createPost: async ({ postInput }, req) => {
-        console.log("triggered");
 
         if (!req.isAuth) {
             const error = new Error("Not authenticated!");
@@ -93,6 +137,15 @@ module.exports = {
         if (postInput.content.length < 5) {
             errors.push("Content must be at least 5 characters long!");
         }
+
+        if (postInput.imageUrl) {
+            try {
+                postInput.imageUrl = await processBase64Image(postInput.imageUrl);
+            } catch (error) {
+                errors.push(error.message);
+            }
+        }
+
         if (errors.length > 0) {
             const error = new Error("Invalid input.");
             error.data = errors;
@@ -109,11 +162,10 @@ module.exports = {
         }
 
         try {
-            console.log(user._id);
             const post = new Post({
                 title: postInput.title,
                 content: postInput.content,
-                imageUrl: '/dummy.jpg',
+                imageUrl: postInput.imageUrl,
                 creator: user
             });
             
@@ -122,17 +174,14 @@ module.exports = {
             user.posts.push(createdPost);
             await user.save();
 
-            console.log(createdPost);
-
             return { 
                 ...createdPost._doc, 
                 _id: createdPost._id.toString(), 
                 createdAt: createdPost.createdAt.toISOString(), 
                 updatedAt: createdPost.updatedAt.toISOString()
             };
-        } catch (error) {
-            console.log(error);
-            const err = new Error("Creating post failed!");
+        } catch (error) {;
+            const err = new Error(error.message);
             err.code = 500;
             throw err;
         }
@@ -145,10 +194,14 @@ module.exports = {
             throw error;
         }
 
+        const page = args.page || 1;
+        const pageSize = args.pageSize || 10;
 
         try {
             const totalPosts = await Post.find().countDocuments();
             const posts = await Post.find()
+                .skip((page - 1) * pageSize)
+                .limit(pageSize)
                 .sort({ createdAt: -1 })
                 .populate("creator");
 
@@ -161,7 +214,6 @@ module.exports = {
                 };
             }), totalPosts: totalPosts };
         } catch (error) {
-            console.log(error);
             const err = new Error("Fetching posts failed!");
             err.code = 500;
             throw err;
@@ -182,6 +234,10 @@ module.exports = {
                 error.code = 404;
                 throw error;
             }
+
+            if (post.imageUrl) {
+                deleteFile(post.imageUrl);
+            }
             if (post.creator.toString() !== req.userId.toString()) {
                 const error = new Error("Not authorized!");
                 error.code = 403;
@@ -194,7 +250,6 @@ module.exports = {
 
             return true;
         } catch (error) {
-            console.log(error);
             const err = new Error("Deleting post failed!");
             err.code = 500;
             throw err;
@@ -202,10 +257,8 @@ module.exports = {
     },
 
     updatePost: async ({ id, postInput }, req) => {
-
-        console.log("triggered");
         if (!req.isAuth) {
-            const error = new Error("Not authenticated!");
+            const error = new Error("Not authenticated!!!");
             error.code = 401;
             throw error;
         }
@@ -222,11 +275,23 @@ module.exports = {
                 error.code = 403;
                 throw error;
             }
+            if (postInput.imageUrl) {
+                try {
+                    postInput.imageUrl = await processBase64Image(postInput.imageUrl);
+                } catch (error) {
+                    const err = new Error("Invalid image!");
+                    err.code = 422;
+                    throw err;
+                }
+            }
             post.title = postInput.title;
             post.content = postInput.content;
-            post.imageUrl = '/dummy.jpg';
 
-            console.log(post);
+            if (postInput.imageUrl && post.imageUrl !== postInput.imageUrl) {
+                deleteFile(post.imageUrl);
+                post.imageUrl = postInput.imageUrl;
+            }
+
             await post.save();
 
             return { 
@@ -236,8 +301,60 @@ module.exports = {
                 updatedAt: post.updatedAt.toISOString()
             };
         } catch (error) {
-            console.log(error);
-            const err = new Error("Editing post failed!");
+            const err = new Error(error.message);
+            err.code = error.code;
+            throw err;
+        }
+    },
+
+    post: async ({ id }, req) => {
+        if (!req.isAuth) {
+            const error = new Error("Not authenticated!");
+            error.code = 401;
+            throw error;
+        }
+
+        try {
+            const baseUrl = req.get("origin") || "http://localhost:8080";
+            const post = await Post.findById(id);
+            if (!post) {
+                const error = new Error("Post not found!");
+                error.code = 404;
+                throw error;
+            }
+            post.imageUrl = baseUrl + post.imageUrl;
+            return {
+                ...post._doc,
+                _id: post._id.toString(),
+                createdAt: post.createdAt.toISOString(),
+                updatedAt: post.updatedAt.toISOString()
+            };
+        } catch (error) {
+            const err = new Error("Fetching post failed!");
+            err.code = 500;
+            throw err;
+        }
+    },
+
+    updateStatus: async ({ status }, req) => {
+        if (!req.isAuth) {
+            const error = new Error("Not authenticated!");
+            error.code = 401;
+            throw error;
+        }
+
+        try {
+            const user = await User.findById(req.userId);
+            if (!user) {
+                const error = new Error("User not found!");
+                error.code = 404;
+                throw error;
+            }
+            user.status = status;
+            await user.save();
+            return { ...user._doc, id: user._id.toString() };
+        } catch (error) {
+            const err = new Error("Updating status failed!");
             err.code = 500;
             throw err;
         }

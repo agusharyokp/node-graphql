@@ -2,7 +2,6 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const path = require("path");
-const fs = require("fs");
 const multer = require("multer");
 const { graphqlHTTP } = require("express-graphql");
 const auth = require("./middleware/auth");
@@ -30,10 +29,12 @@ const fileFilter = (req, file, cb) => {
     }
 };
 
-app.use(bodyParser.json());
+// app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
 app.use(multer({ storage: fileStorage, fileFilter: fileFilter }).single('image'));
 app.use('/images', express.static(path.join(__dirname, 'images')));
-
 
 app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");

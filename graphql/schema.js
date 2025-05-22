@@ -12,11 +12,13 @@ module.exports = buildSchema(`
         login(email: String!, password: String!): AuthData!
         deletePost(id: ID!): Boolean!
         updatePost(id: ID!, postInput: PostInputData): Post!
+        updateStatus(status: String!): User!
     }
 
     type RootQuery {
         login(email: String!, password: String!): AuthData!
-        posts: PostData!
+        posts(page: Int, pageSize: Int): PostData!
+        post(id: ID!): Post!
     }
 
     input UserInputData {
